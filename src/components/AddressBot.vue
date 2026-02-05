@@ -1,182 +1,284 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import getNftFromAccount from '../services/findNft'
 import filterNft from '../services/filterNft'
+import { calcSynergy, calcTotalSynergy } from '../services/calcSynergy'
 
+const inputs = ref([
+  {id: Date.now(), value: '', nfts: [], nftsByEmotion: {}, firstRowNfts: {}}
+])
+
+// Вычисляем суммарный power для строки NFT
+const getRowTotalPower = (item) => {
+  return calcTotalSynergy(Object.values(item.firstRowNfts).filter(Boolean))
+}
 
 const activeNft = ref(null)
 const selectedSkin = ref('')
 const skins = [
-	"Golden", "Cavern", "Magical", "Fairytale", "Martian", "Silver", "Desert",
-	"Demonic", "Lunar", "Cosmic", "Swamp", "Meadow", "Urban", "Mountain",
-	"Beach", "Taiga", "Forest", "Tropical"
+  "Golden", "Cavern", "Magical", "Fairytale", "Martian", "Silver", "Desert",
+  "Demonic", "Lunar", "Cosmic", "Swamp", "Meadow", "Urban", "Mountain",
+  "Beach", "Taiga", "Forest", "Tropical"
 ]
 
 const emotions = [
-	"To The Moon", "Greeting", "Capped", "Shoked", "In Love", "Do Something", "Wen TGE"
+  "In Love", "Greeting", "Capped", "Shoked", "Do Something", "To The Moon", "Wen TGE"
 ]
 
 const getEmotion = (nft) => {
-	const emotionName = nft?.metadata?.name
-	return emotions.filter(item => emotionName.slice(3, -5).includes(item)).join()
-}
+  // Сначала ищем в атрибутах
+  const emotionAttr = nft?.metadata?.attributes?.find(attr => attr.trait_type === "Emotion")
+  if (emotionAttr && emotions.includes(emotionAttr.value)) return emotionAttr.value
 
-const groupByEmotion = (nfts) => {
-	const result = {}
-
-	for (const emotion of emotions) {
-		result[emotion] = []
-	}
-
-	for (const nft of nfts) {
-		const emotion = getEmotion(nft)
-		if (result[emotion]) {
-			result[emotion].push(nft)
-		}
-	}
-
-	return result
+  // Если нет атрибута — ищем в имени
+  const emotionName = nft?.metadata?.name || ''
+  const found = emotions.find(item => emotionName.includes(item))
+  return found || null
 }
 
 
-const inputs = ref([
-	{id: Date.now(), value: '', nfts: [], nftsByEmotion: {}}
-])
+// Функция для выбора NFT с наибольшей мощностью по каждой эмоции
+const getTopNftFromEmotion = (nftsByEmotion) => {
+  const result = {}
+
+  for (const emotion of emotions) {
+    const nftList = nftsByEmotion[emotion] || []
+    if (nftList.length === 0) {
+      result[emotion] = null
+      continue
+    }
+
+    // Находим NFT с максимальной мощностью
+    const topNft = nftList.reduce((max, nft) => {
+      return calcSynergy(nft) > calcSynergy(max) ? nft : max
+    }, nftList[0])
+
+    result[emotion] = topNft
+  }
+
+  return result
+}
+
 
 const toggleAttributes = (id) => {
-	activeNft.value = activeNft.value === id ? null : id
-	getEmotion(activeNft)
+  activeNft.value = activeNft.value === id ? null : id
 }
 
+// Главная функция получения NFT для одного адреса
 const getNft = async (item) => {
-	try {
-		const nftArray = await getNftFromAccount(item.value)
-		const filteredNft = filterNft(nftArray, selectedSkin.value)
-		item.nftsByEmotion = groupByEmotion(filteredNft)
-	} catch (error) {
-		console.log("Ошибка")
-	}
+  try {
+    const nftArray = await getNftFromAccount(item.value)
+    const filteredNft = filterNft(nftArray, selectedSkin.value)
+
+    // Группируем по эмоциям
+    item.nftsByEmotion = {}
+    for (const emotion of emotions) {
+      item.nftsByEmotion[emotion] = []
+    }
+    for (const nft of filteredNft) {
+      const emotion = getEmotion(nft)
+      if (emotion) item.nftsByEmotion[emotion].push(nft)
+    }
+
+    // Выбираем для каждой эмоции NFT с максимальной мощностью
+    item.firstRowNfts = getTopNftFromEmotion(item.nftsByEmotion)
+
+    console.log('Top NFTs by emotion:', item.firstRowNfts)
+  } catch (error) {
+    console.log("Ошибка при получении NFT:", error)
+  }
 }
 
 const getAllNft = async () => {
-	for (const item of inputs.value) {
-		if (!item.value) continue
-		await getNft(item)
-	}
+  for (const item of inputs.value) {
+    if (!item.value) continue
+    await getNft(item)
+  }
 }
 
 const removeInput = (index) => {
-	inputs.value.splice(index, 1)
+  inputs.value.splice(index, 1)
 }
 
 const addInput = () => {
-	inputs.value.push({
-		id: Date.now() + Math.random(),
-		value: '',
-		nfts: []
-	})
+  inputs.value.push({
+    id: Date.now() + Math.random(),
+    value: '',
+    nfts: [],
+    firstRowNfts: {}
+  })
 }
 
 const onImageError = (event) => {
-  event.target.src = 'https://via.placeholder.com/150' // картинка-заглушка
+  event.target.src = 'https://via.placeholder.com/150'
 }
-
 </script>
 
 <template>
   <div class="header">
-			<div class="title">
-				<label class="skin-tone">Выберите цвет:
-					<select v-model="selectedSkin">
-						<option disabled value="">Выберите...</option>
-						<option v-for="(skin, index) in skins" :key="index" :value="skin">
-							{{ skin }}
-						</option>
-					</select>
-				</label>
-				<div class="text">Введите TON адрес:
-					<button @click="getAllNft">
-						Проверить все
-					</button>
-				</div>
-			</div>
-		
-		<div v-for="(item, index) in inputs" :key="item.id" >
-			<div class="address">
-				<input v-model="item.value" type="text" placeholder="Введите адрес">
-				<button @click="getNft(item)">Проверить</button>
-				<button class="remove" @click="removeInput(index)">Удалить</button>
-			</div>
-			
-			<div class="nft__collection">
-				<div v-for="(nfts, emotion) in item.nftsByEmotion" :key="emotion">
-					<div :class="nft ? 'nft__card' : 'nft__empty'" v-for="nft in nfts" :key="nft.index" @click="toggleAttributes(nft.index)">
-						<img 
-							class="nft__image" 
-							:src="nft?.metadata?.image"
+    <div class="title">
+      <label class="skin-tone">Выберите цвет:
+        <select v-model="selectedSkin">
+          <option disabled value="">Выберите...</option>
+          <option v-for="(skin, index) in skins" :key="index" :value="skin">
+            {{ skin }}
+          </option>
+        </select>
+      </label>
+      <div class="text">Введите TON адрес:
+        <button @click="getAllNft">
+          Проверить все
+        </button>
+      </div>
+    </div>
+    
+    <div v-for="(item, index) in inputs" :key="item.id">
+      <div class="address">
+        <input v-model="item.value" type="text" placeholder="Введите адрес">
+        <button @click="getNft(item)">Проверить</button>
+        <button class="remove" @click="removeInput(index)">Удалить</button>
+      </div>
+      
+      <!-- Только верхняя строка -->
+      <div class="top-row">
+				<div class="total-power">
+    			Total PWR: {{ getRowTotalPower(item) }} PWR
+  			</div>
+        <div class="nft__collection">
+          <!-- Проходим по всем эмоциям по порядку -->
+          <div 
+            v-for="emotion in emotions" 
+            :key="emotion" 
+            class="emotion-slot"
+          >
+            <div class="emotion-header">{{ emotion }}</div>
+            
+            <div class="nft-wrapper">
+              <div
+                v-if="item.firstRowNfts[emotion]"
+                class="nft__card"
+                @click="toggleAttributes(item.firstRowNfts[emotion].index)"
+              >
+							<img
+							class="nft__image"
+							:src="item.firstRowNfts[emotion]?.metadata?.image"
 							@error="onImageError"
-						>
-    				<!-- Атрибуты, которые показываются при наведении -->
-    				<div class="nft__attributes" :class="{ show: activeNft === nft.index}">
-    				  <div v-for="(attr, i) in nft?.metadata?.attributes" :key="i">
-    				    {{ attr.trait_type }}: {{ attr.value }}
-    				  </div>
-    				</div>
+							/>
+							
+							<div
+							class="nft__attributes"
+							:class="{ show: activeNft === item.firstRowNfts[emotion].index }"
+							>
+							<div v-for="(attr, i) in item.firstRowNfts[emotion]?.metadata?.attributes" :key="i">
+								{{ attr.trait_type }}: {{ attr.value }}
+							</div>
+						</div>
+						
 						<div class="nft__name">
-							{{ nft?.metadata?.name || 'Без названия' }}
+							{{ item.firstRowNfts[emotion]?.metadata?.name.split(" ").slice(-1).join() || 'Без названия' }}
+						</div>
+						<div class="nft__power">
+							{{ 	calcSynergy(item.firstRowNfts[emotion]) }} PWR
 						</div>
 					</div>
-				</div>
-
-			</div>
-
-
-		</div>
-		<button @click="addInput" class="add">Добавить</button>
-	</div>
+					
+              <!-- Пустой слот, если нет NFT для этой эмоции -->
+              <div v-else class="nft__empty"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <button @click="addInput" class="add">Добавить</button>
+  </div>
 </template>
 
 <style scoped>
 .header {
-	position: absolute;
-	width: 100vw;
-	left: 50%;
-	top: 20px;
-	transform: translateX(-50%);
+  position: absolute;
+  width: 100vw;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
   color: white;
-	font-size: 25px;
+  font-size: 25px;
 }
 .title {
-	margin-left: 10%;
+  margin-left: 10%;
 }
 
-.address {
-	padding: 0 10%;
-	display: flex;
-	gap: 20px;
-	margin-top: 20px;
-	display: flex;
-	align-items: center;
+.address, .total-power {
+  padding: 0 10%;
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
 }
 
+.total-power {
+	color: gold;
+}
+
+/* Контейнер для верхней строки */
+.top-row {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 20px;
+}
+
+
+/* Основной контейнер для всех слотов в одной строке */
 .nft__collection {
   display: flex;
 	justify-content: space-around;
-  gap: 10px;
-  margin-top: 20px;
-  overflow-x: auto;  /* горизонтальный скролл */
+  gap: 15px; /* Расстояние между колонками эмоций */
+  overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 10px; /* чтобы скролл был виден */
+  padding-bottom: 15px;
+  width: 100vw;
 }
-.nft__empty {
-	width: 100px;
-	height: 100px;
-	background-color: red;
+
+/* Слот для одной эмоции */
+.emotion-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 140px; /* Ширина карточки */
+  flex-shrink: 0;
+  gap: 8px;
 }
+
+/* Заголовок эмоции */
+.emotion-header {
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px;
+}
+
+/* Обертка для NFT */
+.nft-wrapper {
+  width: 100%;
+  height: 200px; /* Высота карточки + название */
+  display: flex;
+  justify-content: center;
+}
+
 .nft__card {
   position: relative;
-  width: 140px;       /* фиксированная ширина */
-  flex-shrink: 0;     /* запрещаем сжиматься */
+  width: 140px;
+  flex-shrink: 0;
   transition: all 0.3s ease;
   cursor: pointer;
   border-radius: 10px;
@@ -193,19 +295,21 @@ const onImageError = (event) => {
   height: 140px;
   object-fit: cover;
   display: block;
-  border-radius: 10px; /* оставляем как у тебя */
-  
-  /* эффект вдавленности только на картинку */
+  border-radius: 10px;
   box-shadow: inset 4px 4px 8px rgba(0,0,0,0.5),
               inset -3px -3px 6px rgba(255,255,255,0.15);
-  
   transition: all 0.3s ease;
 }
 
-.nft__card:hover .nft__image {
+.nft__empty {
+  width: 140px;
+  height: 140px;
+  border-radius: 10px;
   box-shadow: inset 4px 4px 8px rgba(0,0,0,0.5),
-              inset -3px -3px 6px rgba(255,255,255,0.15),
-              0 5px 10px rgba(0,0,0,0.3); /* чуть внешняя тень при hover */
+              inset -3px -3px 6px rgba(255,255,255,0.15);
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  opacity: 0.5;
 }
 
 .nft__attributes {
@@ -234,31 +338,49 @@ const onImageError = (event) => {
   opacity: 1;
 }
 
-.nft__card:hover .nft__attributes {
-  opacity: 1;
-}
-
 .nft__name {
   text-align: center;
   margin-top: 5px;
-  font-size: 14px;
+  font-size: 12px;
   color: white;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px;
 }
 
+.nft__power {
+  text-align: center;
+  font-size: 15px;
+  color: white;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px;
+}
 
 .add {
-	margin: 0 10%;
+  margin: 0 10%;
+  margin-top: 20px;
 }
 
 select {
-	border-radius: 10px;
-	border: none;
-	font-size: 18px;
+  border-radius: 10px;
+  border: none;
+  font-size: 18px;
   background: #2b5ae6;
 }
 
 option {
-	background-color: #1451b4;
+  background-color: #1451b4;
 }
 button {
   color: white;
@@ -268,7 +390,6 @@ button {
   height: 30px;
   border: none;
   cursor: pointer;
-
   box-shadow:
     inset 2px 2px 5px rgba(0, 0, 0, 0.5),
     inset -2px -2px 5px rgba(255, 255, 255, 0.15);
@@ -288,7 +409,6 @@ input {
   height: 30px;
   padding: 0 10px;
   border: none;
-
   box-shadow:
     inset 3px 3px 6px rgba(0, 0, 0, 0.6),
     inset -2px -2px 4px rgba(255, 255, 255, 0.15);
@@ -301,20 +421,18 @@ input:focus {
     inset -2px -2px 5px rgba(255, 255, 255, 0.2);
 }
 
-.picture {
-  padding: 6px;
-  border-radius: 14px;
-  background: #2b5ae6;
-
-  box-shadow:
-    inset 4px 4px 8px rgba(0, 0, 0, 0.6),
-    inset -3px -3px 6px rgba(255, 255, 255, 0.2);
+/* Скроллбар */
+.nft__collection::-webkit-scrollbar {
+  height: 8px;
 }
 
-img {
-  width: 120px;
-  height: 120px;
-  border-radius: 10px;
-  display: block;
+.nft__collection::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.nft__collection::-webkit-scrollbar-thumb {
+  background: #003070;
+  border-radius: 4px;
 }
 </style>
