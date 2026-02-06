@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import getNftFromAccount from '../services/findNft'
 import filterNft from '../services/filterNft'
-import { calcSynergy, calcTotalSynergy } from '../services/calcSynergy'
+import { calcSynergy, calcTotalSynergy, getSynergyBonus, getNumberHighlight } from '../services/calcSynergy'
 
 const inputs = ref([
   {id: Date.now(), value: '', nfts: [], nftsByEmotion: {}, firstRowNfts: {}}
@@ -10,7 +10,8 @@ const inputs = ref([
 
 // Вычисляем суммарный power для строки NFT
 const getRowTotalPower = (item) => {
-  return calcTotalSynergy(Object.values(item.firstRowNfts).filter(Boolean))
+	const allNfts = Object.values(item.firstRowNfts).filter(Boolean)
+  return allNfts.length === 7 ? calcTotalSynergy(allNfts) + 350 : calcTotalSynergy(allNfts)
 }
 
 const activeNft = ref(null)
@@ -35,7 +36,6 @@ const getEmotion = (nft) => {
   const found = emotions.find(item => emotionName.includes(item))
   return found || null
 }
-
 
 // Функция для выбора NFT с наибольшей мощностью по каждой эмоции
 const getTopNftFromEmotion = (nftsByEmotion) => {
@@ -154,34 +154,39 @@ const onImageError = (event) => {
             <div class="emotion-header">{{ emotion }}</div>
             
             <div class="nft-wrapper">
-              <div
-                v-if="item.firstRowNfts[emotion]"
-                class="nft__card"
-                @click="toggleAttributes(item.firstRowNfts[emotion].index)"
-              >
-							<img
-							class="nft__image"
-							:src="item.firstRowNfts[emotion]?.metadata?.image"
-							@error="onImageError"
-							/>
-							
-							<div
-							class="nft__attributes"
-							:class="{ show: activeNft === item.firstRowNfts[emotion].index }"
-							>
-							<div v-for="(attr, i) in item.firstRowNfts[emotion]?.metadata?.attributes" :key="i">
-								{{ attr.trait_type }}: {{ attr.value }}
-							</div>
-						</div>
-						
-						<div class="nft__name">
-							{{ item.firstRowNfts[emotion]?.metadata?.name.split(" ").slice(-1).join() || 'Без названия' }}
-						</div>
-						<div class="nft__power">
-							{{ 	calcSynergy(item.firstRowNfts[emotion]) }} PWR
-						</div>
-					</div>
-					
+                <div
+                  v-if="item.firstRowNfts[emotion]"
+                  class="nft__card"
+                  :class="{
+                    'synergy-100': getSynergyBonus(item.firstRowNfts[emotion]) === 100,
+                    'synergy-200': getSynergyBonus(item.firstRowNfts[emotion]) === 200,
+                    'synergy-300': getSynergyBonus(item.firstRowNfts[emotion]) === 300,
+                    [getNumberHighlight(item.firstRowNfts[emotion])]: true
+                  }"
+                  @click="toggleAttributes(item.firstRowNfts[emotion].index)"
+                >
+                <img
+                  class="nft__image"
+                  :src="item.firstRowNfts[emotion]?.metadata?.image"
+                  @error="onImageError"
+                />
+              
+                <div
+                  class="nft__attributes"
+                  :class="{ show: activeNft === item.firstRowNfts[emotion].index }"
+                >
+                  <div v-for="(attr, i) in item.firstRowNfts[emotion]?.metadata?.attributes" :key="i">
+                    {{ attr.trait_type }}: {{ attr.value }}
+                  </div>
+                </div>
+              
+                <div class="nft__name">
+                  {{ item.firstRowNfts[emotion]?.metadata?.name.split(" ").slice(-1).join() || 'Без названия' }}
+                </div>
+                <div class="nft__power">
+                  {{ calcSynergy(item.firstRowNfts[emotion]) }} PWR
+                </div>
+              </div>
               <!-- Пустой слот, если нет NFT для этой эмоции -->
               <div v-else class="nft__empty"></div>
             </div>
@@ -270,7 +275,7 @@ const onImageError = (event) => {
 /* Обертка для NFT */
 .nft-wrapper {
   width: 100%;
-  height: 200px; /* Высота карточки + название */
+  height: 210px; /* Высота карточки + название */
   display: flex;
   justify-content: center;
 }
@@ -288,6 +293,60 @@ const onImageError = (event) => {
 .nft__card:hover {
   box-shadow: 0 10px 20px rgba(0,0,0,0.6);
   transform: translateY(-5px);
+}
+
+/* =========================
+   Анимация свечения
+========================= */
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 3px currentColor, 0 0 5px currentColor, 0 0 8px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 8px currentColor, 0 0 10px currentColor, 0 0 13px currentColor;
+  }
+}
+
+/* =========================
+   Synergy подсветка
+========================= */
+.nft__card.synergy-100 {
+  border: 3px solid gold;
+  color: gold;
+  animation: glow 1.5s infinite alternate;
+}
+
+.nft__card.synergy-200 {
+  border: 3px solid deepskyblue;
+  color: deepskyblue;
+  animation: glow 1.5s infinite alternate;
+}
+
+.nft__card.synergy-300 {
+  border: 3px solid violet;
+  color: violet;
+  animation: glow 1.5s infinite alternate;
+}
+
+/* =========================
+   Number подсветка
+========================= */
+.nft__card.highlight-red {
+  border: 3px solid rgb(245, 4, 48);
+  color: rgb(245, 4, 48);
+  animation: glow 1.5s infinite alternate;
+}
+
+.nft__card.highlight-purple {
+  border: 3px solid purple;
+  color: purple;
+  animation: glow 1.5s infinite alternate;
+}
+
+.nft__card.highlight-blue {
+  border: 3px solid rgb(74, 16, 249);
+  color: rgb(74, 16, 249);
+  animation: glow 1.5s infinite alternate;
 }
 
 .nft__image {
